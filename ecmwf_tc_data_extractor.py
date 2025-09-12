@@ -88,8 +88,13 @@ def extract_tc_data(filename: str, verbose: bool = True) -> pd.DataFrame:
       bearings, radii, significance codes, time periods, ensemble members
     - Handles missing values using BUFR missing value codes
     
-    Stage 3: Data Structuring
-    - Creates DataFrame with all extracted parameters
+    Stage 3: Wind Radii Mapping
+    - Maps wind threshold/bearing/radius data to geographic positions
+    - Uses systematic array mapping to associate wind radii with coordinates
+    - Creates records for each position with available wind radii data
+    
+    Stage 4: Data Structuring
+    - Creates comprehensive DataFrame with all extracted parameters
     - Converts units (Pa to hPa, m/s to knots)
     - Maps significance codes to position types
     - Calculates forecast datetime from base time + forecast step
@@ -112,6 +117,7 @@ def extract_tc_data(filename: str, verbose: bool = True) -> pd.DataFrame:
             - wind_threshold_ms, wind_threshold_knots: Wind threshold for radii
             - bearing_degrees: Wind direction for radii (0°, 90°, 180°, 270°)
             - max_radius_km: Maximum radius for given wind threshold
+            - has_wind_radii: Boolean indicating if position has wind radii data
     """
     # ========================================================================
     # STAGE 1: BUFR FILE READING
@@ -204,48 +210,108 @@ def extract_tc_data(filename: str, verbose: bool = True) -> pd.DataFrame:
                             print(f"    Unique values: {unique_vals}")
 
             # ========================================================================
-            # STAGE 3: DATA STRUCTURING
+            # STAGE 3: WIND RADII MAPPING
             # ========================================================================
-            # Create DataFrame with all extracted data arrays
-            # This is a simple extraction without complex mapping - just get all the data
+            # This is the most complex part - mapping wind radii data to positions
+            # BUFR stores wind radii data separately from positions, so we need to
+            # systematically map wind threshold/bearing/radius combinations to
+            # geographic coordinates where they apply
             
             if verbose:
-                print(f"\nStage 3: Structuring extracted data...")
+                print(f"\nStage 3: Mapping wind radii data to positions...")
 
-            # Create records for all data points
-            all_records = []
-            
-            # Get the length of the main coordinate arrays
+            # The key insight: create a mapping table for all arrays
+            # Each position in the latitude/longitude arrays corresponds to a
+            # specific ensemble member and forecast time step
             n_positions = len(arrays['latitude'])
-            
-            if verbose:
-                print(f"Creating records for {n_positions} data points...")
 
-            # Process each data point
+            # Create base records for all positions
+            all_records = []
+
+            # Initialize counters for different array types
+            # These arrays have different lengths and need to be mapped systematically
+            pressure_idx = 0
+            wind_speed_idx = 0
+            wind_threshold_idx = 0
+            bearing_idx = 0
+            max_radius_idx = 0
+            significance_idx = 0
+            time_idx = 0
+
+            if verbose:
+                print(f"Processing {n_positions} positions...")
+                print("Mapping wind radii data using systematic array association...")
+
+            # Process each position and assign available data
             for pos_idx in range(n_positions):
-                # Basic position data
+                # Basic position
                 lat = arrays['latitude'][pos_idx] if arrays['latitude'][pos_idx] != ec.CODES_MISSING_DOUBLE else None
                 lon = arrays['longitude'][pos_idx] if arrays['longitude'][pos_idx] != ec.CODES_MISSING_DOUBLE else None
 
-                # Significance code
-                significance = arrays['significance'][pos_idx] if pos_idx < len(arrays['significance']) and arrays['significance'][pos_idx] != ec.CODES_MISSING_DOUBLE else None
+                # Significance code (cycling through available codes)
+                if significance_idx < len(arrays['significance']):
+                    significance = arrays['significance'][significance_idx]
+                    # Move to next significance code based on pattern
+                    significance_idx = (significance_idx + 1) % len(arrays['significance'])
+                else:
+                    significance = None
 
-                # Time period
-                time_period = int(arrays['time_period'][pos_idx]) if pos_idx < len(arrays['time_period']) and arrays['time_period'][pos_idx] != ec.CODES_MISSING_DOUBLE else 0
+                # Time period (cycling through available periods)
+                if time_idx < len(arrays['time_period']):
+                    time_period = int(arrays['time_period'][time_idx])
+                    # Advance time index periodically
+                    if (pos_idx + 1) % (n_positions // len(arrays['time_period'])) == 0:
+                        time_idx = (time_idx + 1) % len(arrays['time_period'])
+                else:
+                    time_period = 0
 
-                # Ensemble member
+                # Ensemble member (cycling through members)
                 member = ensemble_members[pos_idx % len(ensemble_members)]
 
                 # Meteorological data
-                pressure = arrays['pressure'][pos_idx] if pos_idx < len(arrays['pressure']) and arrays['pressure'][pos_idx] != ec.CODES_MISSING_DOUBLE else None
-                wind_speed = arrays['wind_speed'][pos_idx] if pos_idx < len(arrays['wind_speed']) and arrays['wind_speed'][pos_idx] != ec.CODES_MISSING_DOUBLE else None
+                pressure = None
+                if pressure_idx < len(arrays['pressure']) and arrays['pressure'][pressure_idx] != ec.CODES_MISSING_DOUBLE:
+                    pressure = arrays['pressure'][pressure_idx]
 
-                # Wind radii data (raw arrays)
-                wind_threshold = arrays['wind_threshold'][pos_idx] if pos_idx < len(arrays['wind_threshold']) and arrays['wind_threshold'][pos_idx] != ec.CODES_MISSING_DOUBLE else None
-                bearing = arrays['bearing'][pos_idx] if pos_idx < len(arrays['bearing']) and arrays['bearing'][pos_idx] != ec.CODES_MISSING_DOUBLE else None
-                max_radius = arrays['max_radius'][pos_idx] if pos_idx < len(arrays['max_radius']) and arrays['max_radius'][pos_idx] != ec.CODES_MISSING_DOUBLE else None
+                wind_speed = None
+                if wind_speed_idx < len(arrays['wind_speed']) and arrays['wind_speed'][wind_speed_idx] != ec.CODES_MISSING_DOUBLE:
+                    wind_speed = arrays['wind_speed'][wind_speed_idx]
 
-                # Create record with all extracted data
+                # Wind radii data - THIS IS THE KEY PART
+                wind_threshold = None
+                bearing = None
+                max_radius = None
+
+                # Map wind threshold to positions that have valid coordinates
+                if lat is not None and lon is not None:
+                    if wind_threshold_idx < len(arrays['wind_threshold']):
+                        threshold_val = arrays['wind_threshold'][wind_threshold_idx]
+                        if threshold_val != ec.CODES_MISSING_DOUBLE:
+                            wind_threshold = threshold_val
+                            wind_threshold_idx += 1
+
+                    # Map bearing to positions with wind thresholds
+                    if wind_threshold is not None and bearing_idx < len(arrays['bearing']):
+                        bearing_val = arrays['bearing'][bearing_idx]
+                        if bearing_val != ec.CODES_MISSING_DOUBLE:
+                            bearing = bearing_val
+                            bearing_idx += 1
+
+                    # Map radius to positions with both threshold and bearing
+                    if (wind_threshold is not None and bearing is not None and
+                        max_radius_idx < len(arrays['max_radius'])):
+                        radius_val = arrays['max_radius'][max_radius_idx]
+                        if radius_val != ec.CODES_MISSING_DOUBLE:
+                            max_radius = radius_val
+                            max_radius_idx += 1
+
+                # Advance meteorological data indices
+                if (pos_idx + 1) % (n_positions // len(arrays['pressure'])) == 0 and pressure_idx < len(arrays['pressure']) - 1:
+                    pressure_idx += 1
+                if (pos_idx + 1) % (n_positions // len(arrays['wind_speed'])) == 0 and wind_speed_idx < len(arrays['wind_speed']) - 1:
+                    wind_speed_idx += 1
+
+                # Create record
                 record = {
                     'storm_id': storm_id,
                     'ensemble_member': int(member),
@@ -263,32 +329,62 @@ def extract_tc_data(filename: str, verbose: bool = True) -> pd.DataFrame:
                     'wind_threshold_knots': wind_threshold * 1.94384 if wind_threshold is not None else None,
                     'bearing_degrees': bearing,
                     'max_radius_km': max_radius,
-                    'array_index': pos_idx
+                    'array_index': pos_idx,
+                    'has_wind_radii': wind_threshold is not None and bearing is not None
                 }
 
                 all_records.append(record)
 
             # ========================================================================
-            # STAGE 4: DATA VALIDATION AND SUMMARY
+            # STAGE 4: DATA STRUCTURING AND VALIDATION
             # ========================================================================
-            # Validate extracted data and provide summary statistics
+            # Create comprehensive DataFrame with all extracted parameters
+            # Convert units, map significance codes, and validate data quality
             
             if verbose:
-                print(f"\nStage 4: Validating extracted data...")
-                print(f"Total records extracted: {len(all_records)}")
+                print(f"\nStage 4: Structuring data and creating comprehensive records...")
+                print(f"Total records created: {len(all_records)}")
 
-            # Count records with valid data
+            # Count records with wind radii data
+            wind_radii_records = sum(1 for r in all_records if r['has_wind_radii'])
             valid_coords = sum(1 for r in all_records if r['latitude'] is not None and r['longitude'] is not None)
-            valid_pressure = sum(1 for r in all_records if r['pressure_pa'] is not None)
-            valid_wind = sum(1 for r in all_records if r['wind_speed_ms'] is not None)
-            wind_radii_data = sum(1 for r in all_records if r['wind_threshold_ms'] is not None and r['bearing_degrees'] is not None)
 
             if verbose:
-                print(f"Records with valid coordinates: {valid_coords}")
-                print(f"Records with pressure data: {valid_pressure}")
-                print(f"Records with wind speed data: {valid_wind}")
-                print(f"Records with wind radii data: {wind_radii_data}")
-                print(f"Data quality: {valid_coords/len(all_records)*100:.1f}% valid coordinates")
+                print(f"Records with coordinates: {valid_coords}")
+                print(f"Records with wind radii data: {wind_radii_records}")
+
+            # Show wind radii breakdown
+            wind_radii_data = [r for r in all_records if r['has_wind_radii']]
+            if wind_radii_data and verbose:
+                thresholds = {}
+                bearings = {}
+
+                for record in wind_radii_data:
+                    thresh = record['wind_threshold_knots']
+                    bear = record['bearing_degrees']
+
+                    if thresh is not None:
+                        thresholds[thresh] = thresholds.get(thresh, 0) + 1
+                    if bear is not None:
+                        bearings[bear] = bearings.get(bear, 0) + 1
+
+                print(f"\nWind threshold distribution:")
+                for thresh, count in sorted(thresholds.items()):
+                    print(f"  {thresh:.0f} knots: {count} records")
+
+                print(f"\nBearing distribution:")
+                bearing_names = {0: 'North', 90: 'East', 180: 'South', 270: 'West'}
+                for bear, count in sorted(bearings.items()):
+                    name = bearing_names.get(bear, f'{bear}°')
+                    print(f"  {name} ({bear}°): {count} records")
+
+                # Show sample wind radii data
+                print(f"\nSample wind radii records:")
+                sample_records = [r for r in wind_radii_data if r['latitude'] is not None][:10]
+                for i, record in enumerate(sample_records):
+                    print(f"  {i+1}. Member {record['ensemble_member']}, {record['forecast_step_hours']}h: "
+                          f"{record['wind_threshold_knots']:.0f}kt at {record['bearing_degrees']:.0f}° "
+                          f"({record['latitude']:.2f}, {record['longitude']:.2f})")
 
         finally:
             ec.codes_release(bufr)
@@ -374,6 +470,7 @@ def extract_tc_data_from_file(filename: str,
             - success (bool): Whether extraction was successful
             - csv_file (str): Path to saved CSV file (None if failed)
             - records (int): Total number of records extracted
+            - wind_radii_records (int): Number of records with wind radii data
             
     Example:
         # Basic extraction
@@ -412,16 +509,21 @@ def extract_tc_data_from_file(filename: str,
     if verbose:
         print(f"Data saved to: {csv_file}")
     
+    # Count wind radii records
+    wind_radii_data = df[df['has_wind_radii'] == True]
+    
     # Summary
     if verbose:
         print("=" * 50)
         print(f"Summary:")
         print(f"   Successfully extracted: {len(df)} records")
+        print(f"   Wind radii records: {len(wind_radii_data)}")
         print(f"   CSV file: {csv_file}")
         print("=" * 50)
     
     return {
         'success': True,
         'csv_file': csv_file,
-        'records': len(df)
+        'records': len(df),
+        'wind_radii_records': len(wind_radii_data)
     }
