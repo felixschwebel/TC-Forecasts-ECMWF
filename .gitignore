@@ -20,4 +20,4 @@ __pycache__/
 
 tests/
 tc_data/
-test_experiment.py
+test_experiment.ipynb
