@@ -214,7 +214,8 @@ def calculate_wind_radii_from_points(df: pd.DataFrame, verbose: bool = True) -> 
             print("No radii could be calculated")
         return df, pd.DataFrame()
 
-def create_track_visualization(df: pd.DataFrame, output_filename: Optional[str] = None) -> plt.Figure:
+def create_track_visualization(df: pd.DataFrame, output_filename: Optional[str] = None, 
+                              max_members: Optional[int] = None) -> plt.Figure:
     """
     Create ensemble track visualization showing storm paths with distinct forecast hour colors.
     
@@ -224,6 +225,9 @@ def create_track_visualization(df: pd.DataFrame, output_filename: Optional[str] 
     Args:
         df (pd.DataFrame): Tropical cyclone data with track information
         output_filename (str, optional): Path to save the plot
+        max_members (int, optional): Maximum number of ensemble members to display.
+                                   If None, displays all members. If specified, shows
+                                   the first N members sorted by member number.
         
     Returns:
         plt.Figure: The created matplotlib figure
@@ -267,9 +271,19 @@ def create_track_visualization(df: pd.DataFrame, output_filename: Optional[str] 
         plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='purple', markersize=8, label='120h+')
     ]
     
+    # Get ensemble members to plot
+    all_members = sorted(all_track_data['ensemble_member'].unique())
+    if max_members is not None:
+        members_to_plot = all_members[:max_members]
+        if len(all_members) > max_members:
+            print(f"Displaying first {max_members} of {len(all_members)} ensemble members")
+    else:
+        members_to_plot = all_members
+        print(f"Displaying all {len(members_to_plot)} ensemble members")
+    
     # Plot individual ensemble member tracks with distinct forecast hour colors
     members_plotted = []
-    for member in sorted(all_track_data['ensemble_member'].unique())[:10]:
+    for member in members_to_plot:
         member_data = all_track_data[all_track_data['ensemble_member'] == member].sort_values('forecast_step_hours')
         if len(member_data) > 1:
             # Plot line connecting all points
@@ -312,7 +326,8 @@ def create_track_visualization(df: pd.DataFrame, output_filename: Optional[str] 
     return fig
 
 def create_wind_field_visualization(df: pd.DataFrame, radii_df: Optional[pd.DataFrame] = None, 
-                                  output_filename: Optional[str] = None) -> plt.Figure:
+                                  output_filename: Optional[str] = None, 
+                                  max_members: Optional[int] = None) -> plt.Figure:
     """
     Create wind field structure visualization with wind radii.
     
@@ -323,6 +338,9 @@ def create_wind_field_visualization(df: pd.DataFrame, radii_df: Optional[pd.Data
         df (pd.DataFrame): Tropical cyclone data
         radii_df (pd.DataFrame, optional): Calculated wind radii data
         output_filename (str, optional): Path to save the plot
+        max_members (int, optional): Maximum number of ensemble members to display.
+                                   If None, displays all members. If specified, shows
+                                   the first N members sorted by member number.
         
     Returns:
         plt.Figure: The created matplotlib figure
@@ -341,11 +359,21 @@ def create_wind_field_visualization(df: pd.DataFrame, radii_df: Optional[pd.Data
     ax.set_facecolor('lightblue')
     ax.grid(True, alpha=0.3, color='white', linewidth=0.5)
     
+    # Get ensemble members to plot
+    all_members = sorted(all_track_data['ensemble_member'].unique())
+    if max_members is not None:
+        members_to_plot = all_members[:max_members]
+        if len(all_members) > max_members:
+            print(f"Displaying first {max_members} of {len(all_members)} ensemble members")
+    else:
+        members_to_plot = all_members
+        print(f"Displaying all {len(members_to_plot)} ensemble members")
+    
     # Plot storm centers with one color per ensemble member and connected tracks
-    colors = plt.cm.tab10(np.linspace(0, 1, min(10, all_track_data['ensemble_member'].nunique())))
+    colors = plt.cm.tab10(np.linspace(0, 1, len(members_to_plot)))
     members_plotted = []
     
-    for i, member in enumerate(sorted(all_track_data['ensemble_member'].unique())[:10]):
+    for i, member in enumerate(members_to_plot):
         member_data = all_track_data[all_track_data['ensemble_member'] == member].sort_values('forecast_step_hours')
         if len(member_data) > 1:
             color = colors[i % len(colors)]
