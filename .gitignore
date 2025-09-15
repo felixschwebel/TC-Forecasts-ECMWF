@@ -23,4 +23,4 @@ tc_data/
 test_experiment.ipynb
 test_experiment.py
 working_data_extraction_experiment.ipynb
-ecmwf_tc_data_exploration.py
+ecmwf_tc_data_explorer.py
