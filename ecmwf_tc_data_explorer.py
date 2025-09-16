@@ -220,7 +220,8 @@ def create_track_visualization(df: pd.DataFrame, output_filename: Optional[str] 
     Create ensemble track visualization showing storm paths with distinct forecast hour colors.
     
     This function creates a track plot showing individual ensemble member tracks
-    with points colored by distinct forecast hour categories.
+    with points colored by distinct forecast hour categories. Only storm center positions
+    are used for track visualization, not wind radii analysis points.
     
     Args:
         df (pd.DataFrame): Tropical cyclone data with track information
@@ -232,11 +233,15 @@ def create_track_visualization(df: pd.DataFrame, output_filename: Optional[str] 
     Returns:
         plt.Figure: The created matplotlib figure
     """
-    # Filter for all track data (not just storm centers)
-    all_track_data = df.dropna(subset=['latitude', 'longitude'])
+    # Filter for ONLY storm center positions (not wind radii analysis points)
+    storm_centers = df[
+        (df['position_type'] == 'storm_center') & 
+        df['latitude'].notna() & 
+        df['longitude'].notna()
+    ].copy()
     
-    if all_track_data.empty:
-        print("No track data found for track visualization")
+    if storm_centers.empty:
+        print("No storm center track data found for track visualization")
         return None
     
     fig, ax = plt.subplots(figsize=DEFAULT_FIGSIZE)
@@ -244,7 +249,6 @@ def create_track_visualization(df: pd.DataFrame, output_filename: Optional[str] 
     # Add simple basemap background
     ax.set_facecolor('lightblue')
     ax.grid(True, alpha=0.3, color='white', linewidth=0.5)
-    
     
     # Define distinct colors for different forecast hour ranges
     def get_forecast_color(hour):
@@ -272,7 +276,7 @@ def create_track_visualization(df: pd.DataFrame, output_filename: Optional[str] 
     ]
     
     # Get ensemble members to plot
-    all_members = sorted(all_track_data['ensemble_member'].unique())
+    all_members = sorted(storm_centers['ensemble_member'].unique())
     if max_members is not None:
         members_to_plot = all_members[:max_members]
         if len(all_members) > max_members:
@@ -284,17 +288,17 @@ def create_track_visualization(df: pd.DataFrame, output_filename: Optional[str] 
     # Plot individual ensemble member tracks with distinct forecast hour colors
     members_plotted = []
     for member in members_to_plot:
-        member_data = all_track_data[all_track_data['ensemble_member'] == member].sort_values('forecast_step_hours')
+        member_data = storm_centers[storm_centers['ensemble_member'] == member].sort_values('forecast_step_hours')
         if len(member_data) > 1:
-            # Plot line connecting all points
+            # Plot smooth line connecting storm center points
             ax.plot(member_data['longitude'], member_data['latitude'],
-                   '-', alpha=0.6, linewidth=1.5, color='gray')
+                   '-', alpha=0.7, linewidth=2.0, color='gray', label=f'Member {member}')
             
             # Plot points with distinct colors for each forecast hour range
             for _, point in member_data.iterrows():
                 color = get_forecast_color(point['forecast_step_hours'])
                 ax.scatter(point['longitude'], point['latitude'],
-                          c=color, s=40, alpha=0.9, 
+                          c=color, s=50, alpha=0.9, 
                           edgecolor='black', linewidth=0.8)
             
             members_plotted.append(member)
@@ -303,8 +307,8 @@ def create_track_visualization(df: pd.DataFrame, output_filename: Optional[str] 
             point = member_data.iloc[0]
             color = get_forecast_color(point['forecast_step_hours'])
             ax.scatter(point['longitude'], point['latitude'],
-                      c=color, s=60, alpha=0.9, 
-                      edgecolor='black', linewidth=0.8)
+                      c=color, s=80, alpha=0.9, 
+                      edgecolor='black', linewidth=0.8, label=f'Member {member}')
             members_plotted.append(member)
     
     # Add legend
@@ -317,11 +321,127 @@ def create_track_visualization(df: pd.DataFrame, output_filename: Optional[str] 
     
     ax.set_xlabel('Longitude')
     ax.set_ylabel('Latitude')
-    ax.set_title(f'Hurricane {df.iloc[0]["storm_id"]} - Ensemble Track (Colored by Forecast Hour)')
+    ax.set_title(f'Hurricane {df.iloc[0]["storm_id"]} - Ensemble Track (Storm Centers Only)')
     
     if output_filename:
         plt.savefig(output_filename, dpi=DEFAULT_DPI, bbox_inches='tight')
         print(f"Track visualization saved as: {output_filename}")
+    
+    return fig
+
+def create_professional_ensemble_plot(df: pd.DataFrame, output_filename: Optional[str] = None, 
+                                     max_members: Optional[int] = None) -> plt.Figure:
+    """
+    Create professional-style ensemble track visualization similar to operational platforms.
+    
+    This function creates a clean ensemble track plot showing individual member tracks
+    as continuous lines, similar to professional meteorological platforms. Only storm
+    center positions are used for track visualization.
+    
+    Args:
+        df (pd.DataFrame): Tropical cyclone data with track information
+        output_filename (str, optional): Path to save the plot
+        max_members (int, optional): Maximum number of ensemble members to display
+        
+    Returns:
+        plt.Figure: The created matplotlib figure
+    """
+    # Filter for ONLY storm center positions (not wind radii analysis points)
+    storm_centers = df[
+        (df['position_type'] == 'storm_center') & 
+        df['latitude'].notna() & 
+        df['longitude'].notna()
+    ].copy()
+    
+    if storm_centers.empty:
+        print("No storm center track data found for professional ensemble plot")
+        return None
+    
+    fig, ax = plt.subplots(figsize=(14, 10))
+    
+    # Professional dark background
+    ax.set_facecolor('#1a1a1a')
+    ax.grid(True, alpha=0.2, color='white', linewidth=0.5)
+    
+    # Get ensemble members to plot
+    all_members = sorted(storm_centers['ensemble_member'].unique())
+    if max_members is not None:
+        members_to_plot = all_members[:max_members]
+        if len(all_members) > max_members:
+            print(f"Displaying first {max_members} of {len(all_members)} ensemble members")
+    else:
+        members_to_plot = all_members
+        print(f"Displaying all {len(members_to_plot)} ensemble members")
+    
+    # Professional color scheme - use consistent orange/red tones
+    colors = ['#FF6B35', '#FF8C42', '#FFA726', '#FFB74D', '#FFCC80', 
+              '#FFD54F', '#FFECB3', '#FFF3E0', '#FFAB91', '#FF8A65']
+    
+    # Plot individual ensemble member tracks
+    members_plotted = []
+    for i, member in enumerate(members_to_plot):
+        member_data = storm_centers[storm_centers['ensemble_member'] == member].sort_values('forecast_step_hours')
+        if len(member_data) > 1:
+            # Use professional orange color scheme
+            color = colors[i % len(colors)]
+            
+            # Plot smooth line connecting storm center points
+            ax.plot(member_data['longitude'], member_data['latitude'],
+                   '-', alpha=0.8, linewidth=1.5, color=color)
+            
+            # Mark start and end points
+            start_point = member_data.iloc[0]
+            end_point = member_data.iloc[-1]
+            
+            # Start point (current position)
+            ax.scatter(start_point['longitude'], start_point['latitude'],
+                      c='white', s=100, marker='o', edgecolor='black', linewidth=2, zorder=10)
+            
+            # End point
+            ax.scatter(end_point['longitude'], end_point['latitude'],
+                      c=color, s=60, marker='o', edgecolor='black', linewidth=1, alpha=0.8)
+            
+            members_plotted.append(member)
+        elif len(member_data) == 1:
+            # Single point
+            point = member_data.iloc[0]
+            color = colors[i % len(colors)]
+            ax.scatter(point['longitude'], point['latitude'],
+                      c=color, s=80, marker='o', edgecolor='black', linewidth=1.5)
+            members_plotted.append(member)
+    
+    # Add current position marker (L symbol)
+    if not storm_centers.empty:
+        current_pos = storm_centers[storm_centers['forecast_step_hours'] == storm_centers['forecast_step_hours'].min()]
+        if not current_pos.empty:
+            current_lat = current_pos['latitude'].iloc[0]
+            current_lon = current_pos['longitude'].iloc[0]
+            ax.scatter(current_lon, current_lat, c='white', s=200, marker='o', 
+                      edgecolor='black', linewidth=3, zorder=15)
+            ax.text(current_lon, current_lat, 'L', ha='center', va='center', 
+                   fontsize=16, fontweight='bold', color='black', zorder=20)
+    
+    # Professional styling
+    ax.set_xlabel('Longitude', color='white', fontsize=12)
+    ax.set_ylabel('Latitude', color='white', fontsize=12)
+    ax.set_title(f'Tropical Cyclone {df.iloc[0]["storm_id"]} - Ensemble Forecast Tracks', 
+                color='white', fontsize=16, fontweight='bold')
+    
+    # Set axis colors
+    ax.tick_params(colors='white', labelsize=10)
+    for spine in ax.spines.values():
+        spine.set_color('white')
+    
+    # Add ensemble member count
+    members_text = f"Ensemble Members: {len(members_plotted)}"
+    ax.text(0.02, 0.98, members_text, transform=ax.transAxes, fontsize=10,
+            verticalalignment='top', color='white',
+            bbox=dict(boxstyle='round', facecolor='black', alpha=0.7))
+    
+    if output_filename:
+        plt.savefig(output_filename, dpi=DEFAULT_DPI, bbox_inches='tight', 
+                   facecolor='#1a1a1a', edgecolor='none')
+        print(f"Professional ensemble plot saved as: {output_filename}")
     
     return fig
 
@@ -345,12 +465,16 @@ def create_wind_field_visualization(df: pd.DataFrame, radii_df: Optional[pd.Data
     Returns:
         plt.Figure: The created matplotlib figure
     """
-    # Filter data - use all track data for storm centers
-    all_track_data = df.dropna(subset=['latitude', 'longitude'])
+    # Filter data - use ONLY storm center positions for tracks
+    storm_centers = df[
+        (df['position_type'] == 'storm_center') & 
+        df['latitude'].notna() & 
+        df['longitude'].notna()
+    ].copy()
     wind_radii = df[df['has_wind_radii'] == True].dropna(subset=['latitude', 'longitude'])
     
-    if all_track_data.empty:
-        print("No track data found for wind field visualization")
+    if storm_centers.empty:
+        print("No storm center track data found for wind field visualization")
         return None
     
     fig, ax = plt.subplots(figsize=DEFAULT_FIGSIZE)
@@ -360,7 +484,7 @@ def create_wind_field_visualization(df: pd.DataFrame, radii_df: Optional[pd.Data
     ax.grid(True, alpha=0.3, color='white', linewidth=0.5)
     
     # Get ensemble members to plot
-    all_members = sorted(all_track_data['ensemble_member'].unique())
+    all_members = sorted(storm_centers['ensemble_member'].unique())
     if max_members is not None:
         members_to_plot = all_members[:max_members]
         if len(all_members) > max_members:
@@ -374,7 +498,7 @@ def create_wind_field_visualization(df: pd.DataFrame, radii_df: Optional[pd.Data
     members_plotted = []
     
     for i, member in enumerate(members_to_plot):
-        member_data = all_track_data[all_track_data['ensemble_member'] == member].sort_values('forecast_step_hours')
+        member_data = storm_centers[storm_centers['ensemble_member'] == member].sort_values('forecast_step_hours')
         if len(member_data) > 1:
             color = colors[i % len(colors)]
             

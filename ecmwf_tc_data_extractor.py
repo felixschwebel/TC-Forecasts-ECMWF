@@ -35,8 +35,8 @@ https://vocabulary-manager.eumetsat.int/vocabularies/BUFR/WMO/35/TABLE_D/316082
 
 Significance Codes (WMO Standard):
 - Code 1: Storm Center - forecast center position of hurricane circulation
-- Code 3: Maximum Wind - location of strongest winds (often offset from center)
-- Code 4: Analysis Position - current observed position (not forecast)
+- Code 3: Maximum Wind - location of strongest winds
+- Code 4: Analysis Position - current observed position
 - Code 5: Wind Radii - points defining wind speed thresholds and storm extent
 
 Processing Stages:
