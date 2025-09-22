@@ -167,6 +167,7 @@ def parse_filename(filename: str) -> Optional[Dict[str, str]]:
         https://confluence.ecmwf.int/display/DAC/File+naming+convention+and+format+for+real-time+data
     """
     pattern = r'A_JSXX\d+ECEP\d+_C_ECMP_(\d{14})_tropical_cyclone_track_([A-Z0-9]+)_(?:([+-]?\d+(?:p\d+)?deg[EW])_(\d+p\d+deg[NS])_)?bufr4\.bin'
+    
     match = re.match(pattern, filename)
     
     if match:
