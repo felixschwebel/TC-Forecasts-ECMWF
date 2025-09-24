@@ -62,11 +62,6 @@ def extract_tc_data(filename: str, verbose: bool = True) -> pd.DataFrame:
             - wlatitude: Latitude of maximum wind location (degrees)
             - wlongitude: Longitude of maximum wind location (degrees)
             - wind: Maximum 10m wind speed (m/s)
-            - wind_radii_18: List of (bearing1, bearing2, radius) tuples for 18 m/s threshold
-            - wind_radii_26: List of (bearing1, bearing2, radius) tuples for 26 m/s threshold
-            - wind_radii_33: List of (bearing1, bearing2, radius) tuples for 33 m/s threshold
-
-    Based on: https://confluence.ecmwf.int/display/ECC/bufr_read_tropical_cyclone
     """
     # Open BUFR file
     f = open(filename, 'rb')
@@ -312,21 +307,8 @@ def extract_tc_data(filename: str, verbose: bool = True) -> pd.DataFrame:
 
 
         # *************************************************************************************************
-        # Convert nested dictionary to flat dictionary for DataFrame creation
-        d = {
-            'Member': [],           # Ensemble member number
-            'step': [],             # Forecast time step (hours)
-            'latitude': [],         # Storm center latitude
-            'longitude': [],        # Storm center longitude
-            'pressure': [],         # Storm center pressure
-            'wlatitude': [],        # Maximum wind latitude
-            'wlongitude': [],       # Maximum wind longitude
-            'wind': [],             # Maximum wind speed
-            'wind_radii_18': [],    # List of (bearing1, bearing2, radius) tuples for 18 m/s
-            'wind_radii_26': [],    # List of (bearing1, bearing2, radius) tuples for 26 m/s
-            'wind_radii_33': []     # List of (bearing1, bearing2, radius) tuples for 33 m/s
-        }
-
+        # Convert nested dictionary to unpacked format for DataFrame creation
+        unpacked_data= []
 
         # Flatten the data structure and filter out missing values
         for m in range(len(memberNumber)):
@@ -334,10 +316,18 @@ def extract_tc_data(filename: str, verbose: bool = True) -> pd.DataFrame:
                 print("== Member  %d" % memberNumber[m])
                 print("step  latitude  longitude   pressure  latitude   longitude    wind")
 
+            # Create base datetime for this message
+            base_datetime = datetime(year, month, day, hour, minute)
+
             for s in range(len(timePeriod)):
                 # Only include data points with valid lat/lon coordinates
                 if (data[m][s][0] != CODES_MISSING_DOUBLE and
                     data[m][s][1] != CODES_MISSING_DOUBLE):
+
+                    # Calculate the datetime for this forecast step
+                    forecast_datetime = base_datetime + timedelta(hours=int(timePeriod[s]))
+                    datetime_str = forecast_datetime.strftime("%Y-%m-%d %H:%M:%S")
+
 
                     # Print formatted output for verification
                     if verbose:
@@ -345,18 +335,44 @@ def extract_tc_data(filename: str, verbose: bool = True) -> pd.DataFrame:
                             timePeriod[s], '  ', data[m][s][0], '     ', data[m][s][1], '     ', data[m][s][2], '  ',
                             data[m][s][3], '     ', data[m][s][4], '     ', data[m][s][5]))
 
-                    # Add data to output dictionary
-                    d['Member'].append(m)
-                    d['step'].append(timePeriod[s])
-                    d['latitude'].append(data[m][s][0])
-                    d['longitude'].append(data[m][s][1])
-                    d['pressure'].append(data[m][s][2])
-                    d['wlatitude'].append(data[m][s][3])
-                    d['wlongitude'].append(data[m][s][4])
-                    d['wind'].append(data[m][s][5])
-                    d['wind_radii_18'].append(wind_data[m][s].get(18, []))
-                    d['wind_radii_26'].append(wind_data[m][s].get(26, []))
-                    d['wind_radii_33'].append(wind_data[m][s].get(33, []))
+
+                    # Base row data
+                    base_row = {
+                        'storm_id': stormIdentifier,
+                        'ensemble_member': memberNumber[m],
+                        'step': timePeriod[s],
+                        'datetime': datetime_str,
+                        'latitude': data[m][s][0],
+                        'longitude': data[m][s][1],
+                        'pressure': data[m][s][2],
+                        'wlatitude': data[m][s][3],
+                        'wlongitude': data[m][s][4],
+                        'wind': data[m][s][5]
+                    }
+
+                    # Unpack wind radii data for each threshold
+                    for threshold in [18, 26, 33]:
+                        wind_radii = wind_data[m][s].get(threshold, [])
+
+                        # Ensure we have data for all 4 quadrants
+                        for quadrant in range(4):
+                            row = base_row.copy()
+                            row['wind_threshold'] = threshold
+                            row['quadrant'] = quadrant + 1
+
+                            if quadrant < len(wind_radii):
+                                # We have data for this quadrant
+                                bearing_start, bearing_end, radius = wind_radii[quadrant]
+                                row['bearing_start'] = float(bearing_start)
+                                row['bearing_end'] = float(bearing_end)
+                                row['wind_radius'] = float(radius) if not np.isnan(radius) else np.nan
+                            else:
+                                # No data for this quadrant
+                                row['bearing_start'] = np.nan
+                                row['bearing_end'] = np.nan
+                                row['wind_radius'] = np.nan
+
+                            unpacked_data.append(row)
 
         cnt += 1  # Increment message counter
 
@@ -366,9 +382,7 @@ def extract_tc_data(filename: str, verbose: bool = True) -> pd.DataFrame:
     # Close the file
     f.close()
 
-    return pd.DataFrame(d)
-
-
+    return pd.DataFrame(unpacked_data)
 
 
 def extract_tc_data_from_file(filename: str, 
