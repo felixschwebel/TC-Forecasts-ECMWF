@@ -11,6 +11,8 @@ __pycache__/
 *.nc
 *.kmz
 *.bin
+*.html
+*.bufr4
 
 
 *.aux.xml
@@ -22,6 +24,9 @@ tests/
 tc_data/
 tc_mario/
 tc_bualoi/
+tc_gabrielle/
+tc_kiko/
+tc_latest/
 test_experiment.ipynb
 test_experiment.py
 working_data_extraction_experiment.ipynb
