@@ -119,9 +119,23 @@ def create_track_visualization(csv_file: str, output_filename: Optional[str] = N
         crs=gdf.crs
     )
 
+    # Separate styling for control members 51 & 52
+    gdf_lines['is_control'] = gdf_lines['member'] > 50
+
     # Create interactive map
     m = gdf_buffer.explore()
-    m2 = gdf_lines.explore(m=m)
+
+    # Plot regular ensemble members first
+    ensemble_lines = gdf_lines[gdf_lines['is_control'] == False]
+    if not ensemble_lines.empty:
+        ensemble_lines.explore(m=m)
+
+    # Plot control members with red, thick lines
+    control_lines = gdf_lines[gdf_lines['is_control'] == True]
+    if not control_lines.empty:
+        m2 = control_lines.explore(m=m, color='red', style_kwds={'weight': 4, 'opacity': 0.8})
+    else:
+        m2 = m
 
     # Save map if filename provided
     if output_filename:
@@ -186,8 +200,13 @@ def create_intensity_plot(csv_file: str, output_filename: Optional[str] = None) 
     for member in all_members:
         member_data = intensity_data[intensity_data['ensemble_member'] == member].sort_values('step')
         if len(member_data) > 1:
-            ax1.plot(member_data['step'], member_data['wind_knots'],
-                    '-', alpha=0.6, linewidth=1)
+            # Check if it's a control member
+            if member > 50:  # Control members
+                ax1.plot(member_data['step'], member_data['wind_knots'],
+                         '-', linewidth=3, color='red', alpha=0.9)
+            else:  # Regular ensemble members
+                ax1.plot(member_data['step'], member_data['wind_knots'],
+                         '-', alpha=0.6, linewidth=1)
 
     # Add hurricane category thresholds
     for threshold_ms, category in HURRICANE_CATEGORIES.items():
@@ -205,8 +224,13 @@ def create_intensity_plot(csv_file: str, output_filename: Optional[str] = None) 
     for member in all_members:
         member_data = intensity_data[intensity_data['ensemble_member'] == member].sort_values('step')
         if len(member_data) > 1:
-            ax2.plot(member_data['step'], member_data['pressure_hpa'],
-                    '-', alpha=0.6, linewidth=1)
+            # Check if it's a control member
+            if member > 50:  # Control members
+                ax2.plot(member_data['step'], member_data['pressure_hpa'],
+                         '-', linewidth=3, color='red', alpha=0.9)
+            else:  # Regular ensemble members
+                ax2.plot(member_data['step'], member_data['pressure_hpa'],
+                         '-', alpha=0.6, linewidth=1)
 
     ax2.set_xlabel('Forecast Hour')
     ax2.set_ylabel('Pressure (hPa)')
