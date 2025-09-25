@@ -27,6 +27,7 @@ tc_bualoi/
 tc_gabrielle/
 tc_kiko/
 tc_latest/
+tc_gabrielle_comp/
 test_experiment.ipynb
 test_experiment.py
 working_data_extraction_experiment.ipynb

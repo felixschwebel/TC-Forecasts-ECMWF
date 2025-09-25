@@ -99,7 +99,12 @@ def get_tc_files(forecast_time: str, storm_name: Optional[str] = None) -> List[s
                 bin_files.append(text)
         
         # Filter for tropical cyclone tracks
-        tc_files = [f for f in bin_files if 'tropical_cyclone_track' in f.lower()]
+        tc_files_raw = [f for f in bin_files if 'tropical_cyclone_track' in f.lower()]
+
+        tc_files = []
+        for tc_file in tc_files_raw:
+            if tc_file[10:12] == 'EP':
+                tc_files.append(tc_file)
         
         # Filter by storm name if specified
         if storm_name:
