@@ -30,7 +30,6 @@ tc_latest/
 test_experiment.ipynb
 test_experiment.py
 working_data_extraction_experiment.ipynb
-BUFR-understanding.ipynb
 ecmwf_tc_forecasts_example_TEST.ipynb
 ecmwf_tc_data_explorer.py
 tracks_22S_HEROLD_2020031912.eps.bufr4
