@@ -19,7 +19,7 @@ Features:
 """
 
 import warnings
-from typing import Optional
+from typing import Optional, List
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -246,19 +246,21 @@ def create_intensity_plot(csv_file: str, output_filename: Optional[str] = None) 
     return fig
 
 
-def create_wind_field_visualization(csv_file: str, output_filename: Optional[str] = None) -> plt.Figure:
+def create_wind_field_visualization(csv_file: str, output_filename: Optional[str] = None,
+                                    members: Optional[List[int]] = None,
+                                    n_members: Optional[int] = None) -> plt.Figure:
     """
     Create wind field visualization showing tropical cyclone wind sectors.
     
     This function creates a map showing:
     - Storm tracks as faint gray lines
     - Wind sectors colored by wind speed threshold (18, 26, 33 m/s)
-    - Geographic features (land, coastlines, borders)
-    - Proper map projection and extent
     
     Args:
         csv_file (str): Path to CSV file from ecmwf_tc_data_extractor
         output_filename (str, optional): Output filename for saved plot
+        members (List[int], optional): Specific member numbers to plot
+        n_members (int, optional): Number of members to plot (ignored if members is specified)
         
     Returns:
         matplotlib.figure.Figure: Figure object with wind field visualization
@@ -274,6 +276,16 @@ def create_wind_field_visualization(csv_file: str, output_filename: Optional[str
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
         raise KeyError(f"Missing required columns: {missing_cols}")
+
+    if members is not None:
+        df = df[df['ensemble_member'].isin(members)].copy()
+        if df.empty:
+            raise ValueError(f"No data found for specified members: {members}")
+    elif n_members is not None:
+        available_members = sorted(df['ensemble_member'].unique())
+        selected_members = available_members[:n_members]
+        df = df[df['ensemble_member'].isin(selected_members)].copy()
+        print(f"Selected members: {selected_members}")
 
     # Clean missing values
     df["wind_radius"] = df["wind_radius"].fillna(0.0)
