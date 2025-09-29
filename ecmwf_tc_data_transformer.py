@@ -28,6 +28,7 @@ import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 from datetime import datetime
+import re
 
 import numpy as np
 import pandas as pd
@@ -43,10 +44,10 @@ DEFAULT_CSV_SUFFIX = "_transformed.csv"
 def validate_raw_data(df: pd.DataFrame) -> bool:
     """
     Validate raw extractor output has expected columns.
-    
+
     Args:
         df (pd.DataFrame): Raw dataframe from extractor
-        
+
     Returns:
         bool: True if valid, raises ValueError if not
     """
@@ -72,7 +73,7 @@ def validate_raw_data(df: pd.DataFrame) -> bool:
     # Check wind location data quality (needed for RMW calculation)
     if df['wlatitude'].isna().all():
         raise ValueError("All wind latitude values are missing")
-    
+
     if df['wlongitude'].isna().all():
         raise ValueError("All wind longitude values are missing")
 
@@ -83,14 +84,14 @@ def validate_raw_data(df: pd.DataFrame) -> bool:
 def calculate_forecast_time(df: pd.DataFrame) -> pd.Timestamp:
     """
     Calculate forecast issuance time from the first timestep (step=0).
-    
+
     The forecast_time is when the forecast was made, which equals
     the valid_time of the analysis (step=0). This includes both date AND time
     since ECMWF issues 4 forecasts per day (00Z, 06Z, 12Z, 18Z).
-    
+
     Args:
         df (pd.DataFrame): Raw dataframe from extractor
-        
+
     Returns:
         pd.Timestamp: Forecast issuance time
     """
@@ -134,10 +135,10 @@ def convert_wind_radii_wide(wind_radii_df: pd.DataFrame) -> pd.DataFrame:
         18 m/s = 34 knots
         26 m/s = 50 knots
         33 m/s = 64 knots
-        
+
     Args:
         wind_radii_df (pd.DataFrame): Wind radii data in long format
-        
+
     Returns:
         pd.DataFrame: Wind radii data in wide format
     """
@@ -197,19 +198,19 @@ def convert_wind_radii_wide(wind_radii_df: pd.DataFrame) -> pd.DataFrame:
 def calculate_rmw(forecasts_df: pd.DataFrame) -> pd.Series:
     """
     Calculate radius of maximum winds from storm center to max wind location.
-    
+
     Uses Haversine formula to calculate great circle distance between:
     - Storm center: (latitude, longitude)
     - Maximum wind location: (wlatitude, wlongitude)
-    
+
     Args:
         forecasts_df (pd.DataFrame): DataFrame with lat/lon and wlat/wlon columns
-        
+
     Returns:
         pd.Series: Radius of maximum winds in kilometers
     """
     from math import radians, sin, cos, sqrt, atan2
-    
+
     def haversine_distance(lat1, lon1, lat2, lon2):
         """
         Calculate distance between two points on Earth using Haversine formula.
@@ -217,22 +218,22 @@ def calculate_rmw(forecasts_df: pd.DataFrame) -> pd.Series:
         """
         if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2):
             return np.nan
-        
+
         # Earth radius in kilometers
         R = 6371.0
-        
+
         # Convert to radians
         lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
-        
+
         # Haversine formula
         dlat = lat2 - lat1
         dlon = lon2 - lon1
-        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-        c = 2 * atan2(sqrt(a), sqrt(1-a))
+        a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+        c = 2 * atan2(sqrt(a), sqrt(1 - a))
         distance = R * c
-        
+
         return distance
-    
+
     # Calculate RMW for each row
     rmw = []
     for _, row in forecasts_df.iterrows():
@@ -241,16 +242,16 @@ def calculate_rmw(forecasts_df: pd.DataFrame) -> pd.Series:
             row.get('wlatitude'), row.get('wlongitude')
         )
         rmw.append(dist)
-    
+
     return pd.Series(rmw, index=forecasts_df.index)
 
 
-def transform_tc_data(raw_csv_path: str, 
-                     output_csv_path: Optional[str] = None,
-                     verbose: bool = True) -> Dict[str, Union[str, int, bool]]:
+def transform_tc_data(raw_csv_path: str,
+                      output_csv_path: Optional[str] = None, storm_name: Optional[str] = None,
+                      verbose: bool = True) -> Dict[str, Union[str, int, bool]]:
     """
     Transform raw tropical cyclone data to standardized format.
-    
+
     This is the main function for processing raw CSV data from the extractor.
     It handles the complete transformation pipeline from raw data to standardized format.
 
@@ -264,8 +265,9 @@ def transform_tc_data(raw_csv_path: str,
     Args:
         raw_csv_path (str): Path to raw CSV from extractor
         output_csv_path (str, optional): Path to save transformed CSV
+        storm_name (str, optional): Override storm ID with specific storm name
         verbose (bool): Whether to print detailed progress information
-        
+
     Returns:
         dict: Summary dictionary with keys:
             - success (bool): Whether transformation was successful
@@ -319,6 +321,12 @@ def transform_tc_data(raw_csv_path: str,
                     how='left'
                 )
 
+        # Optionally overwrite storm ID with extracted name
+        if storm_name:
+            if verbose:
+                print(f"  Overriding storm_id with extracted storm name: {storm_name}")
+            forecasts_df['track_id'] = storm_name
+
         # Rename columns to standard format
         forecasts_df = forecasts_df.rename(columns={
             'storm_id': 'track_id',
@@ -330,7 +338,7 @@ def transform_tc_data(raw_csv_path: str,
 
         # Add forecast_time column
         forecasts_df['forecast_time'] = forecast_time
-        
+
         # Ensure forecast_time is properly formatted as datetime
         forecasts_df['forecast_time'] = pd.to_datetime(forecasts_df['forecast_time'])
 
@@ -428,17 +436,17 @@ def transform_tc_data(raw_csv_path: str,
         }
 
 
-def transform_all_in_directory(input_dir: str, 
-                              output_dir: str = "tc_data_transformed",
-                              verbose: bool = True) -> Dict[str, int]:
+def transform_all_in_directory(input_dir: str,
+                               output_dir: str = "tc_data_transformed",
+                               verbose: bool = True) -> Dict[str, int]:
     """
     Transform all CSV files in a directory.
-    
+
     Args:
         input_dir (str): Directory containing raw CSVs (required)
         output_dir (str): Directory to save transformed CSVs (default: "tc_data_transformed")
         verbose (bool): Whether to print detailed progress information (default: True)
-        
+
     Returns:
         dict: Summary with 'transformed' and 'failed' counts
     """
@@ -460,7 +468,7 @@ def transform_all_in_directory(input_dir: str,
     transformed_files = []
     total_transformed = 0
     total_failed = 0
-    
+
     for csv_file in csv_files:
         try:
             # Generate output filename
@@ -491,12 +499,12 @@ def transform_all_in_directory(input_dir: str,
     return {'transformed': total_transformed, 'failed': total_failed}
 
 
-def transform_tc_data_from_file(filename: str, 
-                               output_dir: Optional[str] = None,
-                               verbose: bool = True) -> Dict[str, Union[str, int, bool]]:
+def transform_tc_data_from_file(filename: str,
+                                output_dir: Optional[str] = None,
+                                verbose: bool = True) -> Dict[str, Union[str, int, bool]]:
     """
     Transform tropical cyclone data from a raw CSV file and save results.
-    
+
     This is a convenience function for processing raw CSV files from the extractor.
     It handles the complete transformation pipeline from raw CSV to standardized format.
 
@@ -504,7 +512,7 @@ def transform_tc_data_from_file(filename: str,
         filename (str): Path to the raw CSV file from extractor
         output_dir (str, optional): Output directory for saved files (default: same as input file)
         verbose (bool): Whether to print detailed progress information (default: True)
-        
+
     Returns:
         dict: Summary dictionary with keys:
             - success (bool): Whether transformation was successful
@@ -514,20 +522,24 @@ def transform_tc_data_from_file(filename: str,
     # Determine output directory - use same directory as input file if not specified
     if output_dir is None:
         output_dir = os.path.dirname(filename)
-    
+
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
-    
+
     if verbose:
         print(f"Transforming tropical cyclone data from: {filename}")
-    
+
     # Generate output filename
     base_name = os.path.splitext(os.path.basename(filename))[0]
     csv_file = os.path.join(output_dir, base_name + DEFAULT_CSV_SUFFIX)
-    
+
+    # Try to extract storm name from filename
+    match = re.search(r'tropical_cyclone_track_([A-Z0-9]+)', base_name)
+    storm_name = match.group(1) if match else None
+
     # Transform data
-    result = transform_tc_data(filename, csv_file, verbose=verbose)
-    
+    result = transform_tc_data(filename, csv_file, storm_name=storm_name, verbose=verbose)
+
     if result['success']:
         if verbose:
             print("=" * 50)
@@ -538,6 +550,6 @@ def transform_tc_data_from_file(filename: str,
     else:
         if verbose:
             print("Error: Failed to transform data from CSV file")
-    
+
     return result
 
