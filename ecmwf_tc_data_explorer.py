@@ -95,22 +95,50 @@ def create_track_visualization(csv_file: str, output_filename: Optional[str] = N
     # Create buffered points for storm centers (200km buffer)
     gdf_buffer = buffer_geodataframe(gdf, 200)
 
+    # Filter out points near the dateline
+    gdf_buffer_filtered = gdf_buffer.copy()
+
+    # Check if the track crosses dateline
+    lons = gdf['longitude'].values
+    if (lons.max() - lons.min()) > 180:
+        # Track crosses dateline - only show points on one side
+        # Keep points either in Eastern or Western hemisphere, whichever has more
+        eastern = gdf_buffer[gdf_buffer.geometry.centroid.x > 0]
+        western = gdf_buffer[gdf_buffer.geometry.centroid.x < 0]
+
+        if len(eastern) > len(western):
+            gdf_buffer_filtered = eastern
+        else:
+            gdf_buffer_filtered = western
+
+        print(f"Dateline crossing detected - showing {len(gdf_buffer_filtered)} of {len(gdf_buffer)} points")
+
+
     # Create track lines for each ensemble member
     lines = []
     from_idx = []
     to_idx = []
     member = []
-    
+
     for m in gdf.ensemble_member.unique():
         gdf_m = gdf[gdf.ensemble_member == m].sort_values('step')
         pts = gdf_m.geometry.to_list()
 
         # Create line segments between consecutive points
         if len(pts) > 1:
-            lines += [LineString([pts[i], pts[i + 1]]) for i in range(len(pts) - 1)]
-            from_idx += list(gdf_m.index[:-1])
-            to_idx += list(gdf_m.index[1:])
-            member += ([m] * (len(gdf_m) - 1))
+            for i in range(len(pts) - 1):
+                lon1 = pts[i].x
+                lon2 = pts[i + 1].x
+
+                # Check if crossing dateline (longitude difference > 180)
+                if abs(lon2 - lon1) > 180:
+                    # Skip this line segment (dateline crossing)
+                    continue
+
+                lines.append(LineString([pts[i], pts[i + 1]]))
+                from_idx.append(gdf_m.index[i])
+                to_idx.append(gdf_m.index[i + 1])
+                member.append(m)
 
     # Create GeoDataFrame for track lines
     gdf_lines = gpd.GeoDataFrame(
@@ -123,7 +151,7 @@ def create_track_visualization(csv_file: str, output_filename: Optional[str] = N
     gdf_lines['is_control'] = gdf_lines['member'] > 50
 
     # Create interactive map
-    m = gdf_buffer.explore()
+    m = gdf_buffer_filtered.explore()
 
     # Plot regular ensemble members first
     ensemble_lines = gdf_lines[gdf_lines['is_control'] == False]
