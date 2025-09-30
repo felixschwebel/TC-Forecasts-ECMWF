@@ -321,20 +321,20 @@ def transform_tc_data(raw_csv_path: str,
                     how='left'
                 )
 
-        # Optionally overwrite storm ID with extracted name
-        if storm_name:
-            if verbose:
-                print(f"  Overriding storm_id with extracted storm name: {storm_name}")
-            forecasts_df['track_id'] = storm_name
-
         # Rename columns to standard format
         forecasts_df = forecasts_df.rename(columns={
             'storm_id': 'track_id',
             'step': 'lead_time',
             'datetime': 'valid_time',
             'pressure': 'pressure_hpa',  # Assuming hPa from ECMWF
-            'wind': 'wind_speed_ms'
-        })
+                'wind': 'wind_speed_ms'
+            })
+
+        # Optionally overwrite track_id with extracted name
+        if storm_name:
+            if verbose:
+                print(f"  Overriding track_id with extracted storm name: {storm_name}")
+            forecasts_df['track_id'] = storm_name
 
         # Add forecast_time column
         forecasts_df['forecast_time'] = forecast_time
@@ -552,4 +552,3 @@ def transform_tc_data_from_file(filename: str,
             print("Error: Failed to transform data from CSV file")
 
     return result
-
