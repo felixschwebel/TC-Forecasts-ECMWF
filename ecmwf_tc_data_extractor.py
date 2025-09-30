@@ -149,29 +149,17 @@ def extract_tc_data(filename: str, verbose: bool = True) -> pd.DataFrame:
 
 
         # Store initial conditions (time step 0) for each ensemble member
-        # Handle cases where analysis data may be broadcast across all members
-        if len(latitudeAnalysis) == len(memberNumber) and len(latitudeMaxWind0) == len(memberNumber):
-             # Each member has its own analysis values
-            for k in range(len(memberNumber)):
-                data[k][0] = [
-                    latitudeAnalysis[k],      # Storm center latitude
-                    longitudeAnalysis[k],     # Storm center longitude
-                    pressureAnalysis[k],      # Storm center pressure
-                    latitudeMaxWind0[k],      # Max wind latitude
-                    longitudeMaxWind0[k],     # Max wind longitude
-                    windMaxWind0[k]           # Max wind speed
-                ]
-        else:
-            # Analysis position is the same for all members, but pressure/wind may vary
-            for k in range(len(memberNumber)):
-                data[k][0] = [
-                    latitudeAnalysis[0],      # Same storm center lat for all
-                    longitudeAnalysis[0],     # Same storm center lon for all
-                    pressureAnalysis[k],      # Member-specific pressure
-                    latitudeMaxWind0[0],      # Same max wind lat for all
-                    longitudeMaxWind0[0],     # Same max wind lon for all
-                    windMaxWind0[k]           # Member-specific wind speed
-                ]
+        # Handle all cases: per-member data, broadcast data, or mixed
+        # Check each array individually and use appropriate indexing
+        for k in range(len(memberNumber)):
+            data[k][0] = [
+                latitudeAnalysis[k] if len(latitudeAnalysis) == len(memberNumber) else latitudeAnalysis[0],
+                longitudeAnalysis[k] if len(longitudeAnalysis) == len(memberNumber) else longitudeAnalysis[0],
+                pressureAnalysis[k] if len(pressureAnalysis) == len(memberNumber) else pressureAnalysis[0],
+                latitudeMaxWind0[k] if len(latitudeMaxWind0) == len(memberNumber) else latitudeMaxWind0[0],
+                longitudeMaxWind0[k] if len(longitudeMaxWind0) == len(memberNumber) else longitudeMaxWind0[0],
+                windMaxWind0[k] if len(windMaxWind0) == len(memberNumber) else windMaxWind0[0]
+            ]
 
         # Process forecast data for each time period beyond analysis (t=0)
         timePeriod = [0 for x in range(numberOfPeriods)]  # Initialize time period array
@@ -242,6 +230,13 @@ def extract_tc_data(filename: str, verbose: bool = True) -> pd.DataFrame:
             else:
                 print('ERROR: unexpected meteorologicalAttributeSignificance=', significanceWind)
                 raise ValueError(f"Unexpected meteorological significance code: {significanceWind}, expected 3")
+
+
+            # Check if this time step has valid data - skip if all values are missing
+            if len(lat) == 1 and (lat[0] == CODES_MISSING_DOUBLE or lat[0] == -1e+100):
+                if verbose:
+                    print(f"Step {i} (t={timePeriod[i]}h): No valid forecast data - skipping")
+                continue  # Skip to next time step
 
 
             # Store forecast data for all ensemble members at this time step
@@ -320,6 +315,11 @@ def extract_tc_data(filename: str, verbose: bool = True) -> pd.DataFrame:
             base_datetime = datetime(year, month, day, hour, minute)
 
             for s in range(len(timePeriod)):
+                # Skip if this time step was not stored (no valid forecast data)
+                # This prevents KeyError when accessing data[m][s] for skipped steps
+                if s not in data[m]:
+                    continue
+
                 # Only include data points with valid lat/lon coordinates
                 if (data[m][s][0] != CODES_MISSING_DOUBLE and
                     data[m][s][1] != CODES_MISSING_DOUBLE):
